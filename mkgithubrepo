@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+
+# print_help {{{1
+print_help() { cat <<EOS
+${0##*/}: Create github repo on the command line
+
+Usage:
+  ${0##*/} [OPTIONS] [REPO_NAME] [DESCRIPTION]
+
+  Github username will be asked for if not provided
+
+  Repo name will be asked for if not provided,
+  defaulting to name of current directory.
+
+  Description will be asked for if not provided
+
+  Repo visibility will by asked for, defaulting to private
+
+Options:
+  -u,    --user USER     Github username. Will be asked for if not provided
+  -p,    --public        Make repo public
+  -n,    --dry-run       Do nothing, only print commands
+  -h,    --help          Print this screen
+EOS
+}
+
+main() { # {{{1
+  # options {{{2
+  while (( $# )); do
+    case "$1" in
+      --) shift; break;;
+      -u|--user)
+        usr=$2
+        shift
+      ;;
+      -h|--help)
+        print_help
+        exit
+      ;;
+      -p|--public)   priv=n;;
+      -n|--dry-run)  dryrun=y;;
+      -*)            bail "Unrecognized option: $1";;
+      *) break;;
+    esac
+    shift
+  done # }}}
+
+  repo=$1
+  desc="${*:2}"
+
+  root=$(git_root)
+  if (( $? != 0 )); then
+    git_init
+    root=$(git_root)
+  fi
+
+  cd "$root"
+  git_has_origin && bail "Repo already has origin set"
+
+  [[ -n "$usr" ]]  || read -p 'Username: ' usr
+  [[ -n "$usr" ]]  || bail "Github username is required"
+  [[ -n "$repo" ]] || read -p "Repo name [${PWD##*/}]: " repo
+  [[ -n "$repo" ]] || repo="${PWD##*/}"
+  [[ -n "$desc" ]] || read -p "Description: " desc
+  [[ -n "$priv" ]] || read -n 1 -p "Private? [Y/n]: " priv
+  echo
+
+  run_curl -u "$usr" https://api.github.com/user/repos \
+           -d "$(build_json "$repo" "$desc" "$priv")" \
+           || bail "Could not create repo"
+
+  run git remote add origin git@github.com:$usr/$repo.git \
+    || bail "Adding origin failed"
+
+  git_is_clean || bail "Local repo not clean, not pushing to origin"
+
+  run git push --set-upstream origin master || bail "Could not push master"
+}
+
+git_init() { # {{{1
+  ask "$PWD is not in a git repo, would you like to create one?" \
+    || bail "Bailing .."
+
+  if [[ -n "$dryrun" ]]; then
+    printf "%s\n" "git init" "git add ." 'git commit -am "Initial import"'
+    return
+  fi
+
+  echo
+  git init
+  echo
+  git add .
+  echo
+  git commit -am "Initial import"
+  echo
+}
+
+build_json() { # {{{1
+  repo=$1
+  desc=$2
+  priv=$3
+  json="{\"name\":\"${repo}\""
+  [[ -n "$desc" ]] && json+=",\"description\":\"$desc\""
+  [[ -z "$priv" || "${priv,}" == y ]] && json+=",\"private\":true"
+  echo "${json}}"
+}
+
+git_is_clean() { # {{{1
+  run git diff-index --quiet HEAD --
+}
+
+git_root() { # {{{1
+  git rev-parse --show-toplevel 2>/dev/null
+}
+
+git_has_origin() { # {{{1
+  git remote get-url origin >/dev/null 2>/dev/null
+}
+
+run() { # {{{1
+  if [[ -n "$dryrun" ]]; then
+    echo "$@"
+  else
+    "$@"
+  fi
+}
+
+run_curl() { # {{{1
+  if [[ -n "$dryrun" ]]; then
+    echo "curl $@"
+  else
+    curl "$@" >/dev/null
+  fi
+}
+
+ask() { # {{{1
+  read -n 1 -p "$1 [y/N]: " reply
+  echo
+  [[ "${reply,}" == y ]]
+}
+
+bail() { # {{{1
+  printf "%s\n" "$@" >&2
+  exit 1
+}
+
+main "$@" # {{{1
+
