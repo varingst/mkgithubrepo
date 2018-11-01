@@ -45,31 +45,32 @@ main() { # {{{1
     shift
   done # }}}
 
-  repo=$1
+  repo="$1"
   desc="${*:2}"
 
   root=$(git_root)
+  # shellcheck disable=SC2181
   if (( $? != 0 )); then
     git_init
     root=$(git_root)
   fi
 
-  cd "$root"
+  cd "$root" || bail
   git_has_origin && bail "Repo already has origin set"
 
-  [[ -n "$usr" ]]  || read -p 'Username: ' usr
+  [[ -n "$usr" ]]  || read -r -p 'Username: ' usr
   [[ -n "$usr" ]]  || bail "Github username is required"
-  [[ -n "$repo" ]] || read -p "Repo name [${PWD##*/}]: " repo
+  [[ -n "$repo" ]] || read -r -p "Repo name [${PWD##*/}]: " repo
   [[ -n "$repo" ]] || repo="${PWD##*/}"
-  [[ -n "$desc" ]] || read -p "Description: " desc
-  [[ -n "$priv" ]] || read -n 1 -p "Private? [Y/n]: " priv
+  [[ -n "$desc" ]] || read -r -p "Description: " desc
+  [[ -n "$priv" ]] || read -r -n 1 -p "Private? [Y/n]: " priv
   echo
 
   run_curl -u "$usr" https://api.github.com/user/repos \
            -d "$(build_json "$repo" "$desc" "$priv")" \
            || bail "Could not create repo"
 
-  run git remote add origin git@github.com:$usr/$repo.git \
+  run git remote add origin "git@github.com:$usr/$repo.git" \
     || bail "Adding origin failed"
 
   git_is_clean || bail "Local repo not clean, not pushing to origin"
@@ -82,7 +83,7 @@ git_init() { # {{{1
     || bail "Bailing .."
 
   if [[ -n "$dryrun" ]]; then
-    printf "%s\n" "git init" "git add ." 'git commit -am "Initial import"'
+    printf '%s\n' "git init" "git add ." 'git commit -am "Initial import"'
     return
   fi
 
@@ -96,9 +97,9 @@ git_init() { # {{{1
 }
 
 build_json() { # {{{1
-  repo=$1
-  desc=$2
-  priv=$3
+  repo="$1"
+  desc="$2"
+  priv="$3"
   json="{\"name\":\"${repo}\""
   [[ -n "$desc" ]] && json+=",\"description\":\"$desc\""
   [[ -z "$priv" || "${priv,}" == y ]] && json+=",\"private\":true"
@@ -127,20 +128,20 @@ run() { # {{{1
 
 run_curl() { # {{{1
   if [[ -n "$dryrun" ]]; then
-    echo "curl $@"
+    echo "curl $*"
   else
     curl "$@" >/dev/null
   fi
 }
 
 ask() { # {{{1
-  read -n 1 -p "$1 [y/N]: " reply
+  read -r -n 1 -p "$1 [y/N]: " reply
   echo
   [[ "${reply,}" == y ]]
 }
 
 bail() { # {{{1
-  printf "%s\n" "$@" >&2
+  printf '%s\n' "$@" >&2
   exit 1
 }
 
